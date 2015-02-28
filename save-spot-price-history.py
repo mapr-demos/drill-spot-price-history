@@ -6,7 +6,7 @@ import subprocess
 import os
 
 start_date = datetime(2015,2,1)
-end_date = datetime.today()
+end_date = datetime.today() - timedelta(days=1)
 
 # aws ec2 describe-spot-price-history --start-time $(date +%Y-%m-$start_day) --end-time $(date +%Y-%m-$end_day)
 
