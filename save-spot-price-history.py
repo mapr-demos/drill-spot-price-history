@@ -6,7 +6,7 @@ import subprocess
 import os
 
 start_date = datetime(2015,2,1)
-end_date = datetime.today() - timedelta(days=1)
+end_date = datetime.today() - timedelta(hours=1)
 
 # aws ec2 describe-spot-price-history --start-time $(date +%Y-%m-$start_day) --end-time $(date +%Y-%m-$end_day)
 
@@ -14,10 +14,10 @@ command_tmpl = "aws ec2 describe-spot-price-history --start-time %s --end-time %
 
 date = start_date
 while date < end_date:
-	start_date_str = date.strftime("%Y-%m-%d")
-	end_date_str = (date+timedelta(days=1)).strftime("%Y-%m-%d") 
-	
-	dir = os.path.join("data", str(date.year), "%02d" % date.month, "%02d" % date.day)
+	start_date_str = date.strftime("%Y-%m-%dT%H:%M:%S")
+	end_date_str = (date + timedelta(hours=1)).strftime("%Y-%m-%dT%H:%M:%S") 
+
+	dir = os.path.join("data", str(date.year), "%02d" % date.month, "%02d" % date.day, "%02d" % date.hour)
 	print "%s: " % dir,
 	try:
 		os.makedirs(dir)
@@ -32,6 +32,7 @@ while date < end_date:
 			command = command_tmpl % (start_date_str, end_date_str)
 			args = command.split(' ')
 			output = subprocess.check_output(args)
-			f.write(output)
+			if len(output) > 0:
+				f.write(output)
 	print "done"
-	date+=timedelta(days=1)
+	date+=timedelta(hours=1)
