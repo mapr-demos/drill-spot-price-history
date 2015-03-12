@@ -8,10 +8,7 @@ import os
 start_date = datetime(2015,2,1)
 end_date = datetime.today() - timedelta(hours=1)
 
-# aws ec2 describe-spot-price-history --start-time $(date +%Y-%m-$start_day) --end-time $(date +%Y-%m-$end_day)
-
 command_tmpl = "aws ec2 describe-spot-price-history --start-time %s --end-time %s"
-
 date = start_date
 while date < end_date:
 	start_date_str = date.strftime("%Y-%m-%dT%H:%M:%S")
