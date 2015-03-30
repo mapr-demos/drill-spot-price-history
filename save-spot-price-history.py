@@ -41,7 +41,7 @@ def main():
 		start_date_str = date.strftime("%Y-%m-%dT%H:%M:%S")
 		end_date_str = (date + timedelta(days=1)).strftime("%Y-%m-%dT%H:%M:%S") 
 
-		dir = os.path.join("data", str(date.year), "%02d" % date.month, "%02d" % date.day)
+		dir = os.path.join("history", str(date.year), "%02d" % date.month, "%02d" % date.day)
 		try:
 			os.makedirs(dir)
 		except OSError as e:
