@@ -8,8 +8,8 @@ At the end of this workshop, we hope you'll have learned about the following con
 * Storage plugins
 * Querying files in your file system with Drill
 * Contrast between JSON and Parquet format
-** Space
-** Performance (Query time)
+  * Space
+  * Performance (Query time)
 * Views
 * ODBC (Time permitting)
 * Visualization (Time permitting)
