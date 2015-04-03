@@ -1,49 +1,5 @@
 # Drill Workshop - Amazon Spot Prices
 
-## Framework
-
-1. short but rich introduction (~20- 30 minutes?) that really tells the story, gives the take-home concepts etc. so that if people don't stay the entire time or cannot get connected etc. they still get a good bit of information, a good discussion, a good lesson.
-
-Let's guess your audience is mainly business analysts: Don't jump to details or comparisons with Impala. Instead jump into what they might want to do with Drill: what purpose does it serve for them?
-
-Give several examples, with the business need, the role of Drill, the benefit of using it. Keep them fairly brief and fairly fast moving but rich. Then sum up this part with a quick comparison (if appropriate) to Impala for instance and mainly some summary statements about when/ why Drill is useful. These latter "bullet points" may become the key concepts of the demo/workshop in Part 2.
-
-2. Main workshop:  hands-on, or live demo or recorded examples + discussion.  45 min - 60 min
-
-Pick 3 - 5 concepts or key variations on what Drill can do. Build at least an intro slide for each one so that people get a strong visual imprint of the lesson you are showing. (Depending on what you do and how long it would take, maybe 10 - 15 minute each concept)
-
-in other words: "Drill can query nested data such as you'd need in <give an example> Let's see how that works..." and then show or have them do it.
-
-I'm not sure what examples you want to show. Here are some that pop to mind, but I'd need to refresh my thinking on Drill to suggest anything really useful.
-
-Different data types? (that might be several of your concepts)
-
-How to use views?
-
-The "shape" of a good query? 
-
-Connections to a visualization tool such as Tableau?
-
-Remember you can use a combination of slides, discussion, live demo, recorded demo with discussion, etc. 
-
-A good format is to separate each topic, even if just different data types. Clearly identify the "lesson" or point you're making for each one at the start and the end of each little lesson.
-Tell what you'll show, 
-then show how to do it, 
-ask questions that spark discussion (do you use data like this? what types of SQL queries do you usually use? etc)
-close with a slide that reiterates what they've seen or done (just the main idea
-Part 3  Closing short discussion or summary 5 - 10 min
-This doesn't need to be long since you'll have interspersed discussion and questions.  
-
-Close with a slide you repeat from the opening that shows resources:
-
-Drill website <add link>
-Drill 10 min tutorial  <add link>
-@ApacheDrill Twitter identity
- Pick one of the good blogs (Drill site or MapR site, preferably the latter) and offer link to it.
-
-Perhaps add link to "Free Hadoop Training" and MapR edu services link.
-
-
 
 ## Goals
 
