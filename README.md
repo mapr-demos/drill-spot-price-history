@@ -130,6 +130,7 @@ show files;
 select * from history limit 1;
 select * from instances limit 1;
 select * from requests limit 1;
+select * from ondemand limit 1;
 ```
 
 Line 1 selects the dfs.spot workspace, which tells Drill that it should look for any tables relative to the workspace path.
@@ -155,7 +156,17 @@ There's (dir0,dir1,dir2)
 What do you notice about the instances and requests data?
 There's one row, with JSON embedded in it.
 
+
 ## On Demand Pricing
+
+There's lots in here we're going to ignore. So set up a view with just the stuff we want:
+
+```
+create or replace view ondemand_linux_price_view as
+    select region, cast(hourly as float) as hourly, model 
+        from ondemand 
+        where os='linux' and ebsoptimized='false' and pricing='od' and latest='true';
+```
 
 Here's a query to obtain the on-demand pricing:
 
@@ -166,7 +177,8 @@ select * from ondemand where os='linux' and ebsoptimized='false' and pricing='od
 
 ## Instance Data
 
-We queried the instances directory and got back a single column with a JSON "blob" in it. This is not real helpful. We want to turn the data into multiple columns that we can query. But there's also complex objects in the data; things like lists and maps inside of other lists and maps. So let's use a query that pulls out the data we're interested in and presents it in a tabular form that we can use in further queries.
+
+We queried the instances directory and got back a single column with a JSON "blob" in it. This is not terribly helpful. We want to turn the data into rows and columns that we can query. But there's also complex objects in the data; things like lists and maps inside of other lists and maps. So let's use a query that pulls out the data we're interested in and presents it in a tabular form that we can use in further queries.
 
 Here's what the original query looked like (shortened for brevity):
 
@@ -185,7 +197,7 @@ There are a couple of problems with this. First, the entire JSON object is in on
 Notice that the "Reservations" column is a list containing maps. We want each map to become a row in the result set.  We do this with the FLATTEN function, and we'll use the COUNT function to show that we've now got more rows:
 
 ```
-0: jdbc:drill:zk=localhost:2181> select count(flatten(Reservations)) from instances;
+0: jdbc:drill:zk=localhost:2181> select count(*) from (select flatten(Reservations) from instances);
 +------------+
 |   EXPR$0   |
 +------------+
@@ -194,56 +206,76 @@ Notice that the "Reservations" column is a list containing maps. We want each ma
 1 row selected (0.947 seconds)
 ```
 
-Remove the COUNT around the FLATTEN in your own query if you want to see the rows for yourself.
+Use only the sub-select if you want to see all the rows:
 
-This is better, but we still have a blob in a single column. Tough to make anything of this as-is. So let's query it again, pulling out the fields we care about into columns.
+```
+0: jdbc:drill:zk=local> select flatten(Reservations) from instances;
+```
+
+This is better, but we still have a blob in a single column. Tough to make anything of this as-is. So let's query it again, pulling out the fields we care about into columns. We care about the Instance details, so let's get the instances data.
+
+Hmm. Looking at the "Instances" value, we have yet another array (dead giveaway is that each row in the column starts with a `[`). So we'll need to flatten it again to get a row for each Instance:
+
+```
+select flatten(r.Reservations['Instances']) as Instances from (select flatten(Reservations) as Reservations from instances) as r;
+```
+
+You should see that we went from having 90 rows to 232 rows. 
+
+From here, we can create a view from the parts of the Instance object that we care about:
+
+```
+select
+    Instances['Placement']['AvailabilityZone'] as AvailabilityZone,
+    Instances['InstanceType'] as InstanceType,
+    cast(to_timestamp(`replace`(Instances['LaunchTime'], 'T', ' '), 'YYYY-MM-dd HH:mm:ss.SSSZ') as Timestamp) as LaunchTime,
+    Instances['State']['Name'] as State
+  from 
+    (select flatten(r.Reservations['Instances']) as Instances from 
+        (select flatten(Reservations) as Reservations from instances) as r);
+```
+
+This is getting complicated. Once we're pretty sure this is how we want our table to look, we can make future queries against this easier by creating a view. When creating the view, we'll make sure to be explicit about the column types, to make comparisons smoother.
+
+```
+create or replace view instance_view as
+  select
+    cast(Instances['Placement']['AvailabilityZone'] as VARCHAR(32)) as AvailabilityZone,
+    cast(Instances['InstanceType'] as VARCHAR(16)) as InstanceType,
+    cast(to_timestamp(`replace`(Instances['LaunchTime'], 'T', ' '), 'YYYY-MM-dd HH:mm:ss.SSSZ') as Timestamp) as LaunchTime,
+    cast(Instances['State']['Name'] as VARCHAR(16)) as State
+  from 
+    (select flatten(r.Reservations['Instances']) as Instances from 
+        (select flatten(Reservations) as Reservations from instances) as r);
+```
+
+Now we can get the same result as above from a much simpler query:
+
+```
+select * from instance_view;
+```
+
+### Questions:
+
+1. Take a look at the directory where you unpacked the files (your workspace). Look at the files with the `.view.drill` extension, and notice how they're constructed.
 
 
 ## Spot Price History Data
-Form the query with some light transforms and casts to get things to the right type
 
 The data as obtained from Amazon contains timestamps that can't be parsed by Drill as-is if we want to use the timestamp type. So we need to transform them. We'll use the replace function in order to remove the bits of text that make the date unparseable. Note the replace functions inside the cast for Timestamp. Also note the use of backticks around replace and the Timestamp column name - we need these because Drill is still rather protective around reserved words.
 
 ```
 create or replace view spot_price_history as 
   (select 
-    dir0 as `year`,
-    dir1 as `month`,
-    dir2 as `day`,
-    cast(AvailabilityZone as varchar(15)) as AvailabilityZone,
+    cast(dir0 as INT) as `year`,
+    cast(dir1 as INT) as `month`,
+    cast(dir2 as INT) as `day`,
+    to_timestamp(`replace`(`Timestamp`, 'T', ' '), 'YYYY-MM-dd HH:mm:ss.SSSZ') as `Timestamp`,
+    cast(ProductDescription as VARCHAR(32)) as ProductDescription,
+    cast(InstanceType as VARCHAR(16)) as InstanceType,
     cast(SpotPrice as float) as SpotPrice,
-    cast(InstanceType as varchar(15)) as InstanceType,
-    cast(ProductDescription as varchar(15)) as ProductDescription,
-    cast(`replace`(`replace`(`Timestamp`, 'T', ' '), '.000Z', '') as timestamp) as `Timestamp`
+    cast(AvailabilityZone as VARCHAR(20)) as AvailabilityZone
   from dfs.spot.history);
-```
-
-```
-create or replace view spot_price_history as 
-  (select 
-    dir0 as `year`,
-    dir1 as `month`,
-    dir2 as `day`,
-    cast(AvailabilityZone as varchar(15)) as AvailabilityZone,
-    cast(SpotPrice as float) as SpotPrice,
-    cast(InstanceType as varchar(15)) as InstanceType,
-    cast(ProductDescription as varchar(15)) as ProductDescription,
-    to_timestamp(`replace`(`replace`(`Timestamp`, 'T', ' '), '.000Z', ''), 'YYYY-MM-dd HH:mm:ss') as `Timestamp`
-from dfs.spot.history);
-```
-
-```
-create or replace view spot_price_history as 
-  (select 
-    dir0 as `year`,
-    dir1 as `month`,
-    dir2 as `day`,
-    cast(AvailabilityZone as varchar(15)) as AvailabilityZone,
-    cast(SpotPrice as float) as SpotPrice,
-    cast(InstanceType as varchar(15)) as InstanceType,
-    cast(ProductDescription as varchar(15)) as ProductDescription,
-    to_timestamp(`Timestamp`, 'YYYY-MM-dd''T''HH:mm:ss.SSS''Z''') as `Timestamp`
-from dfs.spot.history);
 ```
 
 ## Why use a view?
@@ -251,12 +283,54 @@ from dfs.spot.history);
 1. It allows us to simplify future queries
 2. It allows us to use the files in-place while casting to Drill types (for joins and comparisons)
 
+# A Join 
+
+```
+select
+    iv.InstanceType,
+    100 - (100 * (avg(sv.SpotPrice) / avg(od.hourly))) as SpotSavingsPercent 
+  from
+    instance_view iv,
+    spot_price_history sv,
+    ondemand_linux_price_view od
+  where 
+    iv.InstanceType = sv.InstanceType and 
+    iv.InstanceType = od.model 
+  group by iv.InstanceType;
+```
+
+This query takes way too long - over 6 minutes on my laptop. Perhaps it's because we're scanning through a couple of gigabytes of spot price history that's stored in a suboptimal format (for performance).
+
+
+```
+select
+    iv.InstanceType,
+    100 - (100 * (avg(sv.SpotPrice) / avg(od.hourly))) as SpotSavingsPercent 
+  from
+    (select InstanceType,AvailabilityZone,avg(SpotPrice) as SpotPrice from history_parquet group by InstanceType, AvailabilityZone) sv,
+    instance_view iv,
+    ondemand_linux_price_view od
+  where 
+    iv.InstanceType = sv.InstanceType and 
+    iv.InstanceType = od.model 
+  group by iv.InstanceType
+  order by SpotSavingsPercent desc;
+
+```
+
 
 ## Convert from JSON to Parquet
 
 ```
 alter session set `store.format`='parquet';
-create table t as select * from spot_price_history;
+create table history_parquet as
+  select 
+    to_timestamp(`replace`(`Timestamp`, 'T', ' '), 'YYYY-MM-dd HH:mm:ss.SSSZ') as `Timestamp`,
+    cast(ProductDescription as VARCHAR(32)) as ProductDescription,
+    cast(InstanceType as VARCHAR(16)) as InstanceType,
+    cast(SpotPrice as float) as SpotPrice,
+    cast(AvailabilityZone as VARCHAR(20)) as AvailabilityZone
+  from history;
 ```
 
 # Analysis
@@ -266,8 +340,26 @@ create table t as select * from spot_price_history;
 
 We'll compute the variance of the spot prices by region, using the built-in variance function:
 
-select AvailabilityZone,InstanceType,min(SpotPrice) as min_price,avg(SpotPrice) as avg_price,max(SpotPrice) as max_price, variance(SpotPrice) as price_variance from p_spot_prices where InstanceType in ('hi1.4xlarge') group by AvailabilityZone,InstanceType order by AvailabilityZone,price_variance asc;
 
+```
+select 
+    AvailabilityZone,
+    InstanceType,min(SpotPrice) as min_price,
+    round(avg(SpotPrice) as avg_price),
+    max(SpotPrice) as max_price, 
+    variance(SpotPrice) as price_variance 
+  from 
+    history_parquet 
+  where 
+    InstanceType in ('hi1.4xlarge') 
+  group by 
+    AvailabilityZone,
+    InstanceType 
+  order by 
+    AvailabilityZone,
+    price_variance
+  asc;
+```
 
 
 
