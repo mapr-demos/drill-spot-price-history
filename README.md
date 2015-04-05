@@ -69,11 +69,10 @@ Get the data we're working with here: https://s3.amazonaws.com/vgonzalez/data/sp
 
 Unpack this to the directory you added to the dfs storage plugin.
 
-We will use spot instance data from Amazon ec2. I used the below to get data on spot instance requests in a few regions (you don't need to do this, supplied for reference):
 
-https://gist.github.com/vicenteg/2174325e1ee6095e679b
+### Spot Instance Requests
 
-The data obtained is complex in that it has nested elements. 
+The spot instance request data is complex in that it has nested elements:
 
 ```
 {
@@ -107,18 +106,28 @@ The data obtained is complex in that it has nested elements.
 
 The key SpotInstanceRequests has a value that is a list of maps, and each map contains more key-value pairs where the values can be complex objects themselves (lists, maps, or scalar values).
 
-We'll also work with some simpler JSON data, that is not nested, and is in more of a tabular format.
+### Spot Price History Data
 
-For the history data, there is a top level directory called data, with date partitioned directories (`/history/<year>/<month>/<day>/<region>-prices.json`).
+The spot price history data is simpler than the spot request data. It is not nested, and is in more of a tabular format. It is still JSON.
+
+In the history data, there is a top level directory called `history`, with date partitioned directories (`/history/<year>/<month>/<day>/<region>-prices.json`).
 
 The script used to produce this data is available on github. The script uses the AWS CLI script to download the data, then do some simple reshaping of the JSON object - instead of storing all the data for a single request in a single large JSON object, we store each spot price change object as a single object on a single line in the file.
 
 The script also automatically partitions the data by date - each request with the AWS CLI obtains a day's worth of spot price changes, and the script stores them in one file per region per day.
 
-All the data being used here is JSON, but we will change that later.
+I used the below to get data on spot instance requests in a few regions (you don't need to do this, supplied for reference):
 
-## Some Exploratory Queries
-N.B.: before doing these queries, any files with empty schemas need to be removed, or you will get errors related to empty schemas from Drill.
+https://gist.github.com/vicenteg/2174325e1ee6095e679b
+
+### EC2 on demand pricing
+
+I obtained the on-demand pricing data here: http://info.awsstream.com/instances.json?
+
+It required some simple reshaping for which I used jq.
+
+
+### Some Exploratory Queries
 
 Having just downloaded this data, maybe we don't really know what's in it. You could explore the schema, and try to figure out the structure first. That's a good idea. But you could also just see if Drill can figure it out for you (sometimes it can, sometimes it can't).
 
@@ -151,10 +160,11 @@ Line 2 shows the files in that workspace, which should look like this:
 
 Questions:
 
-What do you notice that's interesting about the history data?
-There's (dir0,dir1,dir2)
-What do you notice about the instances and requests data?
-There's one row, with JSON embedded in it.
+* What do you notice that's interesting about the history data?
+  * dir0,dir1,dir2 match the date partitions.
+
+* What do you notice about the instances and requests data?
+  * There's one row, with JSON embedded in it.
 
 
 ## On Demand Pricing
@@ -315,7 +325,6 @@ select
     iv.InstanceType = od.model 
   group by iv.InstanceType
   order by SpotSavingsPercent desc;
-
 ```
 
 
@@ -336,7 +345,6 @@ create table history_parquet as
 # Analysis
 
 ## Get variance
-
 
 We'll compute the variance of the spot prices by region, using the built-in variance function:
 
@@ -387,7 +395,7 @@ Are certain times more volatile than others for a given region/AZ?
 
 Which are the most/least volatile instance types? Regions?
 
-Spread between spot and on-demand - which instance types give best bang/buck versus on-demand? Versus reserved instances?
+Spread between spot and on-demand - which instance types give best bang/buck versus on-demand?
 
 For some actual instances, how much are we saving/wasting versus on-demand/spot instances?
 
