@@ -210,12 +210,15 @@ Let’s set up a view to make future queries against this result set easier:
 
 ```
 create or replace view ondemand_view as
-    select region, cast(hourly as float) as hourly, model 
-      from ondemand 
-      where os='linux' and 
-        ebsoptimized='false' and 
-        pricing='od' and 
-        latest='true';
+    select 
+      region,
+      cast(hourly as float) as hourly,
+      cast(model as VARCHAR(16)) as InstanceType
+    from ondemand 
+    where os='linux' and 
+      ebsoptimized='false' and 
+      pricing='od' and 
+      latest='true';
 ```
 
 Now you can do this:
@@ -277,6 +280,7 @@ From here, we can create a view from the parts of the Instance object that we ca
 
 ```
 select
+    Instances['InstanceId'] as InstanceId,
     Instances['Placement']['AvailabilityZone'] as AvailabilityZone,
     Instances['InstanceType'] as InstanceType,
     cast(to_timestamp(`replace`(Instances['LaunchTime'], 'T', ' '), 'YYYY-MM-dd HH:mm:ss.SSSZ') as Timestamp) as LaunchTime,
@@ -291,6 +295,7 @@ This is getting complicated. Once we're pretty sure this is how we want our tabl
 ```
 create or replace view instance_view as
   select
+    cast(Instances['InstanceId'] as VARCHAR(16)) as InstanceId,
     cast(Instances['Placement']['AvailabilityZone'] as VARCHAR(32)) as AvailabilityZone,
     cast(Instances['InstanceType'] as VARCHAR(16)) as InstanceType,
     cast(to_timestamp(`replace`(Instances['LaunchTime'], 'T', ' '), 'YYYY-MM-dd HH:mm:ss.SSSZ') as Timestamp) as LaunchTime,
@@ -321,12 +326,27 @@ create or replace view spot_price_history as
     cast(dir0 as INT) as yr,
     cast(dir1 as INT) as mo,
     cast(dir2 as INT) as dy,
-    to_timestamp(`replace`(`Timestamp`, 'T', ' '), 'YYYY-MM-dd HH:mm:ss.SSSZ') as `Timestamp`,
+    cast(to_timestamp(`replace`(`Timestamp`, 'T', ' '), 'YYYY-MM-dd HH:mm:ss.SSSZ') as Timestamp) as `Timestamp`,
     cast(ProductDescription as VARCHAR(32)) as ProductDescription,
     cast(InstanceType as VARCHAR(16)) as InstanceType,
     cast(SpotPrice as float) as SpotPrice,
     cast(AvailabilityZone as VARCHAR(20)) as AvailabilityZone
-  from dfs.spot.history);
+  from history);
+```
+
+## Spot Requests
+
+The spot request data is nested, so we'll use Drill's ability to query nested data to create a view for looking at the spot data we care about; instance type, launch time and pricing as it relates to availability zone:
+
+```
+create or replace view requests_view as
+  select 
+    cast(req['InstanceId'] as VARCHAR(16)) as InstanceId,
+    cast(req['LaunchedAvailabilityZone'] as VARCHAR(20)) as AvailabilityZone,
+    cast(req['LaunchSpecification']['InstanceType'] as VARCHAR(16)) as InstanceType,
+    cast(to_timestamp(`replace`(req['CreateTime'], 'T', ' '), 'YYYY-MM-dd HH:mm:ss.SSSZ') as Timestamp) as CreateTime
+  from
+    (select flatten(SpotInstanceRequests) as req from requests);
 ```
 
 ### Why use a view?
@@ -349,13 +369,14 @@ select
     ondemand_view od
   where 
     iv.InstanceType = sv.InstanceType and 
-    iv.InstanceType = od.model 
-  group by iv.InstanceType;
+    iv.InstanceType = od.InstanceType 
+  group by iv.InstanceType
+  order by SpotSavingsPercent desc;
 ```
 
-This query takes way too long - almost 6 minutes on my laptop. Perhaps it's because we're scanning through a couple of gigabytes of spot price history when we don't really need to look at all of it.
+This query takes way too long - several minutes on my laptop. Perhaps it's because we're scanning through a couple of gigabytes of spot price history when we don't really need to look at all of it.
 
-Maybe we can prune away some of the data in the query, so that we don't have to scan the entire 2GB of history? Let's just use the average spot price for the current month (it's April):
+Maybe we can prune away some of the data in the query, so that we don't have to scan the entire history? Let's just use the average spot price for the current month, which at the time of this writing is April (4):
 
 ```
 select
@@ -367,13 +388,12 @@ select
     ondemand_view od
   where 
     iv.InstanceType = sv.InstanceType and 
-    iv.InstanceType = od.model 
+    iv.InstanceType = od.InstanceType 
   group by iv.InstanceType
   order by SpotSavingsPercent desc;
 ```
 
-Queried as above, Drill will ignore the directories that don't satisfy the `yr = 2015 and mo = 4` constraints, and the query goes a lot faster. 6 seconds versus almost 6 minutes. That's a pretty easy optimization!
-
+Queried as above, Drill will ignore the directories that don't satisfy the `yr = 2015 and mo = 4` constraints, and the query goes a lot faster. 6 seconds versus several minutes. That's a pretty easy optimization we can make, and all we have to do to take advantage of it is organize the historical data into a sensible directory scheme.
 
 What we can also do is store the historical data in a more efficient format. Let's convert it to Parquet.
 
@@ -384,7 +404,7 @@ create table history_parquet as
     cast(dir0 as INT) as yr,
     cast(dir1 as INT) as mo,
     cast(dir2 as INT) as dy,
-    to_timestamp(`replace`(`Timestamp`, 'T', ' '), 'YYYY-MM-dd HH:mm:ss.SSSZ') as `Timestamp`,
+    cast(to_timestamp(`replace`(`Timestamp`, 'T', ' '), 'YYYY-MM-dd HH:mm:ss.SSSZ') as Timestamp) as `Timestamp`,
     cast(ProductDescription as VARCHAR(32)) as ProductDescription,
     cast(InstanceType as VARCHAR(16)) as InstanceType,
     cast(SpotPrice as float) as SpotPrice,
@@ -396,9 +416,26 @@ create table history_parquet as
 
 ```
 $ du -hs history history_parquet/
-2.2G  history
-159M  history_parquet/
+662M  history
+ 52M  history_parquet/
 ```
+
+Now let's make a view, so that we can ensure comparisons work as we expect.
+
+```
+create or replace view history_view as
+  select 
+    cast(dir0 as INT) as yr,
+    cast(dir1 as INT) as mo,
+    cast(dir2 as INT) as dy,
+    cast(to_timestamp(`replace`(`Timestamp`, 'T', ' '), 'YYYY-MM-dd HH:mm:ss.SSSZ') as Timestamp) as `Timestamp`,
+    cast(ProductDescription as VARCHAR(32)) as ProductDescription,
+    cast(InstanceType as VARCHAR(16)) as InstanceType,
+    cast(SpotPrice as float) as SpotPrice,
+    cast(AvailabilityZone as VARCHAR(20)) as AvailabilityZone
+  from history_parquet;
+```
+
 
 Let's run the query against this table:
 
@@ -412,19 +449,39 @@ select
     ondemand_view od
   where 
     iv.InstanceType = sv.InstanceType and 
-    iv.InstanceType = od.model 
+    iv.InstanceType = od.InstanceType 
   group by iv.InstanceType
   order by SpotSavingsPercent desc;
 ```
 
-And we get an answer back in about 5 seconds.
+And we get an answer back in a few seconds.
 
-# Analysis
 
-## Get variance
 
-We'll compute the variance of the spot prices by region, using the built-in variance function:
+## Questions we want to ask of the data
 
+### Volatility
+
+Let's say I want to pick the most stable spot price for an instance. What instance type should it be, and where should I place those instances?
+
+Use the variance to find the volatility in spot pricing by instance and region. Let's get the top 10 most stable spot prices, across all regions:
+
+```
+select 
+    InstanceType,min(SpotPrice) as min_price,
+    round(avg(SpotPrice), 3) as avg_price,
+    max(SpotPrice) as max_price, 
+    round(variance(SpotPrice), 5) as price_variance 
+  from 
+    history_parquet
+  group by 
+    InstanceType 
+  order by 
+    price_variance
+  asc;
+```
+
+Now let's get the most stable region for an instance type of our choice:
 
 ```
 select 
@@ -432,7 +489,8 @@ select
     InstanceType,min(SpotPrice) as min_price,
     round(avg(SpotPrice), 3) as avg_price,
     max(SpotPrice) as max_price, 
-    variance(SpotPrice) as price_variance 
+    variance(SpotPrice) as price_variance,
+    min(`Timestamp`), max(`Timestamp`) 
   from 
     history_parquet 
   where 
@@ -441,13 +499,70 @@ select
     AvailabilityZone,
     InstanceType 
   order by 
-    AvailabilityZone,
     price_variance
-  asc;
+  asc
+  limit 10;
 ```
 
 
+### On-demand/spot spread
+
+Spread between spot and on-demand - which instance types give best bang/buck versus on-demand?
+
+This will require a join between the ondemand and spot pricing tables.
+
+```
+select 
+    history_parquet.InstanceType,
+    round(avg(history_parquet.SpotPrice),3) as AvgSpotPrice,
+    round(avg(ondemand_view.hourly), 3) as AvgOnDemandPrice,
+    round(((avg(history_parquet.SpotPrice) / avg(ondemand_view.hourly)) * 100),2) as PercentSavings
+  from 
+    history_parquet,
+    ondemand_view
+  where
+    history_parquet.InstanceType = ondemand_view.InstanceType
+  group by 
+    history_parquet.InstanceType 
+  order by
+    PercentSavings
+  desc;
+```
+
+### Efficiency
+
+For some actual instances, how much are we saving/wasting versus on-demand/spot instances?
+
+```
+select 
+    iv.InstanceId,
+    iv.InstanceType,
+    round(avg(od.hourly),2) as AverageOnDemandPrice,
+    round(avg(h.SpotPrice),2) as AvgSpotPrice
+  from
+    instance_view iv,
+    ondemand_view od,
+    history_view h
+  where
+    iv.State = 'running' and
+    iv.InstanceType = od.InstanceType and
+    od.InstanceType = h.InstanceType
+  group by
+    iv.InstanceId,
+    iv.InstanceType
+  order by
+    InstanceType;
+```
+
 # Notes
+
+## Making the data tarball
+
+Exclude resource forks on Mac OS:
+
+```
+bsdtar -cvzf ~/Desktop/spot_data.tar.gz --disable-copyfile spot_data
+```
 
 ## Clearing Tag Values
 
@@ -459,15 +574,4 @@ $ jq '.["Reservations"][]["Instances"][]["Tags"][]["Value"] |= "foo"'  <\
   instances-us-east-1-cleaned.json
 ```
 
-## Questions we want to ask of the data
-
-Distribution of bids? 
-
-Are certain times more volatile than others for a given region/AZ?
-
-Which are the most/least volatile instance types? Regions?
-
-Spread between spot and on-demand - which instance types give best bang/buck versus on-demand?
-
-For some actual instances, how much are we saving/wasting versus on-demand/spot instances?
 
