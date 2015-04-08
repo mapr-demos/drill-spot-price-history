@@ -25,6 +25,8 @@ Download Apache Drill 0.8.0. From the command line on linux or Mac OS:
 curl -LO http://getdrill.org/drill/download/apache-drill-0.8.0.tar.gz
 ```
 
+If you are at the workshop in person, you can also use the thumb drives that are around to copy Drill and the data onto your laptop.
+
 Follow the instructions to install Drill on your platform. I recommend for this exercise that you install to a home directory. On my mac, this looks like:
 
 ```bash
@@ -56,8 +58,13 @@ On my mac, I can download and unpack the data in one step to my tmp directory (b
 ```bash
 curl -L https://s3.amazonaws.com/vgonzalez/data/spot-prices/spot_data.tar.gz | tar -C /tmp -vxzf -
 ```
-
 This will create a directory in your home called `spot_data`. Note the path to this directory if you unpacked the tar ball somewhere else.
+
+If you're at the workshop in person, there are also some thumb drives around with all the needed things on it. The directory looks like this:
+
+![](img/directory.png?raw=true)
+
+You can copy the `spot_data` directory to a location on your disk, noting the path since you'll need that later.
 
 Let’s create a workspace for this data by editing the dfs plugin.
 
