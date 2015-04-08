@@ -145,12 +145,12 @@ show files;
 select * from history limit 1;
 select * from instances limit 1;
 select * from requests limit 1;
-select * from ondemand limit 1;
 ```
 
-Line 1 selects the dfs.spot workspace, which tells Drill that it should look for any tables relative to the workspace path.
 
-Line 2 shows the files in that workspace, which should look like this:
+The first query, `use dfs.spot;` selects the dfs.spot workspace, which tells Drill that it should look for any tables relative to the workspace path.
+
+The next query shows the files in that workspace, which should look like this:
 
 ```
 0: jdbc:drill:zk=localhost:2181> show files;
@@ -164,8 +164,10 @@ Line 2 shows the files in that workspace, which should look like this:
 3 rows selected (0.066 seconds)
 ```
 
+Run a query on one more directory. This one will fail:
+
 ```
-select * from on demand;
+select * from ondemand limit 1;
 ```
 
 When you run this, you’ll probably get an error with an exception like:
@@ -181,6 +183,9 @@ alter system set `store.json.all_text_mode` = True;
 ```
 
 Once done, you should be able to query the on demand data.
+
+
+
 
 
 ### Questions:
@@ -269,7 +274,7 @@ This is better, but we still have a blob in a single column. Tough to make anyth
 Hmm. Looking at the "Instances" value, we have yet another array (dead giveaway is that each row in the column starts with a `[`). So we'll need to flatten it again to get a row for each Instance:
 
 ```
-select flatten(r.Reservations['Instances']) as Instances 
+select flatten(r.Reservations.Instances) as Instances 
   from (select flatten(Reservations) as Reservations from instances) as r;
 ```
 
