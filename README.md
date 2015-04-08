@@ -420,15 +420,15 @@ $ du -hs history history_parquet/
  52M  history_parquet/
 ```
 
-Now let's make a view, so that we can ensure comparisons work as we expect.
+Now let's replace the original view so that we can ensure comparisons work as we expect.
 
 ```
-create or replace view history_view as
+create or replace view spot_price_history as
   select 
-    cast(dir0 as INT) as yr,
-    cast(dir1 as INT) as mo,
-    cast(dir2 as INT) as dy,
-    cast(to_timestamp(`replace`(`Timestamp`, 'T', ' '), 'YYYY-MM-dd HH:mm:ss.SSSZ') as Timestamp) as `Timestamp`,
+    cast(yr as INT) as yr,
+    cast(mo as INT) as mo,
+    cast(dy as INT) as dy,
+    cast(to_timestamp(`Timestamp`, 'YYYY-MM-dd HH:mm:ss.SSS') as Timestamp) as `Timestamp`,
     cast(ProductDescription as VARCHAR(32)) as ProductDescription,
     cast(InstanceType as VARCHAR(16)) as InstanceType,
     cast(SpotPrice as float) as SpotPrice,
@@ -445,7 +445,7 @@ select
     100 - (100 * (avg(sv.SpotPrice) / avg(od.hourly))) as SpotSavingsPercent 
   from
     instance_view iv,
-    (select InstanceType,AvailabilityZone,avg(SpotPrice) as SpotPrice from history_parquet where yr = 2015 and mo = 4 group by InstanceType, AvailabilityZone) sv,
+    (select InstanceType,AvailabilityZone,avg(SpotPrice) as SpotPrice from spot_price_history where yr = 2015 and mo = 4 group by InstanceType, AvailabilityZone) sv,
     ondemand_view od
   where 
     iv.InstanceType = sv.InstanceType and 
@@ -468,16 +468,16 @@ Use the variance to find the volatility in spot pricing by instance and region. 
 
 ```
 select 
-    InstanceType,min(SpotPrice) as min_price,
-    round(avg(SpotPrice), 3) as avg_price,
-    max(SpotPrice) as max_price, 
-    round(variance(SpotPrice), 5) as price_variance 
+    InstanceType,min(SpotPrice) as MinPrice,
+    round(avg(SpotPrice), 3) as AvgPrice,
+    max(SpotPrice) as MaxPrice, 
+    round(variance(SpotPrice), 5) as PriceVariance 
   from 
-    history_parquet
+    spot_price_history
   group by 
     InstanceType 
   order by 
-    price_variance
+    PriceVariance
   asc;
 ```
 
