@@ -21,13 +21,13 @@ At the end of this workshop, we hope you'll have learned about the following con
 
 Download Apache Drill 0.8.0. From the command line on linux or Mac OS:
 
-```
+```bash
 curl -LO http://getdrill.org/drill/download/apache-drill-0.8.0.tar.gz
 ```
 
 Follow the instructions to install Drill on your platform. I recommend for this exercise that you install to a home directory. On my mac, this looks like:
 
-```
+```bash
 cd ~
 curl -L http://getdrill.org/drill/download/apache-drill-0.8.0.tar.gz | tar -vxzf -
 ```
@@ -36,7 +36,7 @@ curl -L http://getdrill.org/drill/download/apache-drill-0.8.0.tar.gz | tar -vxzf
 
 Start Drill with an embedded Zookeeper as follows (adjust the path to sqlline as needed, based on where you installed Drill):
 
-```
+```bash
 ~/apache-drill-0.8.0/bin/sqlline -u jdbc:drill:zk=local
 ```
 
@@ -53,7 +53,7 @@ https://s3.amazonaws.com/vgonzalez/data/spot-prices/spot_data.tar.gz
 
 On my mac, I can download and unpack the data in one step to my tmp directory (be sure you have ~2GB of free space before unpacking!):
 
-```
+```bash
 curl -L https://s3.amazonaws.com/vgonzalez/data/spot-prices/spot_data.tar.gz | tar -C /tmp -vxzf -
 ```
 
@@ -81,7 +81,7 @@ This directory contains nested data about the EC2 instances that exist.
 
 The spot instance request data is complex in that it has nested elements:
 
-```
+```JSON
 {
     "SpotInstanceRequests": [
         {
@@ -139,7 +139,7 @@ Having just downloaded this data, maybe we don't really know what's in it. You c
 
 Provided drill is running and you set up your workspace, you can now run the following queries to see what Drill makes of the data:
 
-```
+```SQL
 use dfs.spot;
 show files;
 select * from history limit 1;
@@ -166,7 +166,7 @@ The next query shows the files in that workspace, which should look like this:
 
 Run a query on one more directory. This one will fail:
 
-```
+```SQL
 select * from ondemand limit 1;
 ```
 
@@ -178,14 +178,11 @@ Query failed: Query stopped., You tried to write a BigInt type when you are usin
 
 This is saying that there was a schema change somewhere in the data that confused Drill; so the query fails. What we do here is tell Drill to not try to infer the type. We do that by setting the following option:
 
-```
+```SQL
 alter system set `store.json.all_text_mode` = True;
 ```
 
 Once done, you should be able to query the on demand data.
-
-
-
 
 
 ### Questions:
@@ -201,7 +198,7 @@ Once done, you should be able to query the on demand data.
 
 Here’s a query to obtain the on-demand pricing, filtering the results to include only Linux, on-demand instances, and instances that are not EBS optimized:
 
-```
+```SQL
 select * 
   from ondemand 
   where 
@@ -213,7 +210,7 @@ select *
 
 Let’s set up a view to make future queries against this result set easier:
 
-```
+```SQL
 create or replace view ondemand_view as
     select 
       region,
@@ -228,7 +225,7 @@ create or replace view ondemand_view as
 
 Now you can do this:
 
-```
+```SQL
 select * from ondemand_view;
 ```
 
@@ -265,15 +262,15 @@ Notice that the "Reservations" column is a list containing maps. We want each ma
 
 Use only the sub-select if you want to see all the rows:
 
-```
-0: jdbc:drill:zk=local> select flatten(Reservations) from instances;
+```SQL
+select flatten(Reservations) from instances;
 ```
 
 This is better, but we still have a blob in a single column. Tough to make anything of this as-is. So let's query it again, pulling out the fields we care about into columns. We care about the Instance details, so let's get the instances data.
 
 Hmm. Looking at the "Instances" value, we have yet another array (dead giveaway is that each row in the column starts with a `[`). So we'll need to flatten it again to get a row for each Instance:
 
-```
+```SQL
 select flatten(r.Reservations.Instances) as Instances 
   from (select flatten(Reservations) as Reservations from instances) as r;
 ```
@@ -283,7 +280,7 @@ You should see that we went from having 90 rows to 232 rows.
 From here, we can create a view from the parts of the Instance object that we care about. Note the syntax for drilling into the nested structure:
 
 
-```
+```SQL
 select
     Instances['InstanceId'] as InstanceId,
     Instances['Placement']['AvailabilityZone'] as AvailabilityZone,
@@ -297,7 +294,7 @@ select
 
 This is getting complicated. Once we're pretty sure this is how we want our table to look, we can make future queries against this easier by creating a view. When creating the view, we'll make sure to be explicit about the column types, to make comparisons smoother.
 
-```
+```SQL
 create or replace view instance_view as
   select
     cast(Instances['InstanceId'] as VARCHAR(16)) as InstanceId,
@@ -312,7 +309,7 @@ create or replace view instance_view as
 
 Now we can get the same result as above from a much simpler query:
 
-```
+```SQL
 select * from instance_view;
 ```
 
@@ -325,7 +322,7 @@ select * from instance_view;
 
 The data as obtained from Amazon contains timestamps that can't be parsed by Drill as-is if we want to use the timestamp type. So we need to transform them. We'll use the replace function in order to remove the bits of text that make the date unparseable. Note the replace functions inside the cast for Timestamp. Also note the use of backticks around replace and the Timestamp column name - we need these because Drill is still rather protective around reserved words.
 
-```
+```SQL
 create or replace view spot_price_history as 
   (select 
     cast(dir0 as INT) as yr,
@@ -343,7 +340,7 @@ create or replace view spot_price_history as
 
 The spot request data is nested, so we'll use Drill's ability to query nested data to create a view for looking at the spot data we care about; instance type, launch time and pricing as it relates to availability zone:
 
-```
+```SQL
 create or replace view requests_view as
   select 
     cast(req['InstanceId'] as VARCHAR(16)) as InstanceId,
@@ -364,7 +361,7 @@ create or replace view requests_view as
 So let's see what kind of percent difference spot pricing would make against the instances that currently exist. To do that, we need to join together a few tables - the instance data, the on-demand pricing data, and the spot pricing data. That's a three way join, across three data sets that are backed by JSON files.
 
 
-```
+```SQL
 select
     iv.InstanceType,
     100 - (100 * (avg(sv.SpotPrice) / avg(od.hourly))) as SpotSavingsPercent 
@@ -383,7 +380,7 @@ This query takes way too long - several minutes on my laptop. Perhaps it's becau
 
 Maybe we can prune away some of the data in the query, so that we don't have to scan the entire history? Let's just use the average spot price for the current month, which at the time of this writing is April (4):
 
-```
+```SQL
 select
     iv.InstanceType,
     100 - (100 * (avg(sv.SpotPrice) / avg(od.hourly))) as SpotSavingsPercent 
@@ -402,7 +399,7 @@ Queried as above, Drill will ignore the directories that don't satisfy the `yr =
 
 What we can also do is store the historical data in a more efficient format. Let's convert it to Parquet.
 
-```
+```SQL
 alter session set `store.format`='parquet';
 create table history_parquet as
   select 
@@ -427,7 +424,7 @@ $ du -hs history history_parquet/
 
 Now let's replace the original view so that we can ensure comparisons work as we expect.
 
-```
+```SQL
 create or replace view spot_price_history as
   select 
     cast(yr as INT) as yr,
@@ -444,7 +441,7 @@ create or replace view spot_price_history as
 
 Let's run the query against this table:
 
-```
+```SQL
 select
     iv.InstanceType,
     100 - (100 * (avg(sv.SpotPrice) / avg(od.hourly))) as SpotSavingsPercent 
@@ -471,7 +468,7 @@ Let's say I want to pick the most stable spot price for an instance. What instan
 
 Use the variance to find the volatility in spot pricing by instance and region. Let's get the top 10 most stable spot prices, across all regions:
 
-```
+```SQL
 select 
     InstanceType,min(SpotPrice) as MinPrice,
     round(avg(SpotPrice), 3) as AvgPrice,
@@ -488,7 +485,7 @@ select
 
 Now let's get the most stable region for an instance type of our choice:
 
-```
+```SQL
 select 
     AvailabilityZone,
     InstanceType,min(SpotPrice) as min_price,
@@ -516,7 +513,7 @@ Spread between spot and on-demand - which instance types give best bang/buck ver
 
 This will require a join between the ondemand and spot pricing tables.
 
-```
+```SQL
 select 
     history_parquet.InstanceType,
     round(avg(history_parquet.SpotPrice),3) as AvgSpotPrice,
@@ -538,7 +535,7 @@ select
 
 For some actual instances, how much are we saving/wasting versus on-demand/spot instances?
 
-```
+```SQL
 select 
     iv.InstanceId,
     iv.InstanceType,
@@ -565,7 +562,7 @@ select
 
 Exclude resource forks on Mac OS:
 
-```
+```bash
 bsdtar -cvzf ~/Desktop/spot_data.tar.gz --disable-copyfile spot_data
 ```
 
@@ -573,7 +570,7 @@ bsdtar -cvzf ~/Desktop/spot_data.tar.gz --disable-copyfile spot_data
 
 jq command line used to replace tag values (since they might contain "interesting" information):
 
-```
+```bash
 $ jq '.["Reservations"][]["Instances"][]["Tags"][]["Value"] |= "foo"'  <\
   instances-us-east-1.json >\
   instances-us-east-1-cleaned.json
