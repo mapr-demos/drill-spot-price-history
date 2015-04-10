@@ -1,9 +1,5 @@
 # Drill Workshop - Amazon Spot Prices
 
-# TODO
-
-* make a drill-workshop-2015-04-08.tar.gz that includes drill 0.8.0 and the data and this readme
-
 ## Goals
 
 At the end of this workshop, we hope you'll have learned about the following concepts in Drill:
