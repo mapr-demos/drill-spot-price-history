@@ -15,10 +15,10 @@ At the end of this workshop, we hope you'll have learned about the following con
 
 ## Prerequisites
 
-Download Apache Drill 0.8.0. From the command line on linux or Mac OS:
+Download Apache Drill 1.0.0. From the command line on linux or Mac OS:
 
 ```bash
-curl -LO http://getdrill.org/drill/download/apache-drill-0.8.0.tar.gz
+curl -LO http://getdrill.org/drill/download/apache-drill-1.0.0.tar.gz
 ```
 
 If you are at the workshop in person, you can also use the thumb drives that are around to copy Drill and the data onto your laptop.
@@ -27,7 +27,7 @@ Follow the instructions to install Drill on your platform. I recommend for this 
 
 ```bash
 cd ~
-curl -L http://getdrill.org/drill/download/apache-drill-0.8.0.tar.gz | tar -vxzf -
+curl -L http://getdrill.org/drill/download/apache-drill-1.0.0.tar.gz | tar -vxzf -
 ```
 
 ### Start drill in embedded mode
@@ -35,7 +35,7 @@ curl -L http://getdrill.org/drill/download/apache-drill-0.8.0.tar.gz | tar -vxzf
 Start Drill with an embedded Zookeeper as follows (adjust the path to sqlline as needed, based on where you installed Drill):
 
 ```bash
-~/apache-drill-0.8.0/bin/sqlline -u jdbc:drill:zk=local
+~/apache-drill-1.0.0/bin/sqlline -u jdbc:drill:zk=local
 ```
 
 Once done, you should be able to connect to http://localhost:8047 in your browser and explore the Drill UI.
@@ -156,15 +156,16 @@ The first query, `use dfs.spot;` selects the dfs.spot workspace, which tells Dri
 The next query shows the files in that workspace, which should look like this:
 
 ```
-0: jdbc:drill:zk=localhost:2181> show files;
-+------------+-------------+------------+------------+------------+------------+-------------+------------+------------------+
-|    name    | isDirectory |   isFile   |   length   |   owner    |   group    | permissions | accessTime | modificationTime |
-+------------+-------------+------------+------------+------------+------------+-------------+------------+------------------+
-| history    | true        | false      | 136        | vince      | staff      | rwxr-xr-x   | 1969-12-31 19:00:00.0 | 2015-03-16 12:46:43.0 |
-| instances  | true        | false      | 272        | vince      | staff      | rwxr-xr-x   | 1969-12-31 19:00:00.0 | 2015-03-31 09:01:49.0 |
-| requests   | true        | false      | 136        | vince      | staff      | rwxr-xr-x   | 1969-12-31 19:00:00.0 | 2015-03-30 15:30:36.0 |
-+------------+-------------+------------+------------+------------+------------+-------------+------------+------------------+
-3 rows selected (0.066 seconds)
+0: jdbc:drill:zk=local> show files;
++------------+--------------+---------+---------+--------+--------+--------------+------------------------+------------------------+
+|    name    | isDirectory  | isFile  | length  | owner  | group  | permissions  |       accessTime       |    modificationTime    |
++------------+--------------+---------+---------+--------+--------+--------------+------------------------+------------------------+
+| history    | true         | false   | 102     | vince  | staff  | rwxr-xr-x    | 1969-12-31 19:00:00.0  | 2015-04-06 15:17:32.0  |
+| instances  | true         | false   | 272     | vince  | staff  | rwxr-xr-x    | 1969-12-31 19:00:00.0  | 2015-04-07 05:36:05.0  |
+| ondemand   | true         | false   | 102     | vince  | staff  | rwxr-xr-x    | 1969-12-31 19:00:00.0  | 2015-04-06 11:25:54.0  |
+| requests   | true         | false   | 136     | vince  | staff  | rwxr-xr-x    | 1969-12-31 19:00:00.0  | 2015-04-03 10:58:07.0  |
++------------+--------------+---------+---------+--------+--------+--------------+------------------------+------------------------+
+4 rows selected (0.119 seconds)
 ```
 
 Run a query on one more directory. This one will fail:
@@ -179,13 +180,23 @@ When you run this, you’ll probably get an error with an exception like:
 Query failed: Query stopped., You tried to write a BigInt type when you are using a ValueWriter of type NullableFloat8WriterImpl. [ 1ecc13be-1ed2-47b8-ac32-99d0a618c681 on 192.168.1.5:31010 ]
 ```
 
-This is saying that there was a schema change somewhere in the data that confused Drill; so the query fails. What we do here is tell Drill to not try to infer the type. We do that by setting the following option:
+This is saying that there was a schema change somewhere in the data that confused Drill; so the query fails. Specifically, somewhere in the data, the type Drill originally inferred changed from a float to an int. What we do here is tell Drill to treat numeric types as text, which means we'll need to tell it later what type to consider it. We do that by setting the following option:
 
 ```SQL
 alter system set `store.json.all_text_mode` = True;
 ```
 
-Once done, you should be able to query the on demand data.
+Once done, you should be able to query the on demand data:
+
+```SQL
+0: jdbc:drill:zk=local> select * from ondemand limit 1;
++---------+------------+----------+---------+---------------------------+---------------------------+-------+---------+-----------+--------+----------+---------------+
+|   id    |   region   | upfront  | hourly  |        created_at         |        updated_at         | term  | latest  |   model   |   os   | pricing  | ebsoptimized  |
++---------+------------+----------+---------+---------------------------+---------------------------+-------+---------+-----------+--------+----------+---------------+
+| 193565  | us-east-1  | 0        | 0.013   | 2015-04-01T22:15:33.157Z  | 2015-04-01T22:15:33.157Z  | 0     | true    | t2.micro  | linux  | od       | false         |
++---------+------------+----------+---------+---------------------------+---------------------------+-------+---------+-----------+--------+----------+---------------+
+1 row selected (0.375 seconds)
+```
 
 
 ### Questions:
@@ -233,6 +244,13 @@ select * from ondemand_view;
 ```
 
 
+### Why use a view?
+
+1. It allows us to simplify future queries
+2. It allows us to use the files in-place while casting to Drill types (for joins and comparisons)
+3. It makes the query available to BI tools (such as Tableau, Excel, Microstrategy, etc)
+
+
 ## Instance Data
 
 We queried the instances directory and got back a single column with a JSON "blob" in it. This is not terribly helpful. We want to turn the data into rows and columns that we can query. But there's also complex objects in the data; things like lists and maps inside of other lists and maps. So let's use a query that pulls out the data we're interested in and presents it in a tabular form that we can use in further queries.
@@ -269,7 +287,7 @@ Use only the sub-select if you want to see all the rows:
 select flatten(Reservations) from instances;
 ```
 
-This is better, but we still have a blob in a single column. Tough to make anything of this as-is. So let's query it again, pulling out the fields we care about into columns. We care about the Instance details, so let's get the instances data.
+This is better, but we still have a blob of JSON in a single column. Tough to make anything of this as-is. So let's query it again, pulling out the fields we care about into columns. We care about the Instance details, so let's get the instances data.
 
 Hmm. Looking at the "Instances" value, we have yet another array (dead giveaway is that each row in the column starts with a `[`). So we'll need to flatten it again to get a row for each Instance:
 
@@ -285,29 +303,31 @@ From here, we can create a view from the parts of the Instance object that we ca
 
 ```SQL
 select
-    Instances['InstanceId'] as InstanceId,
-    Instances['Placement']['AvailabilityZone'] as AvailabilityZone,
-    Instances['InstanceType'] as InstanceType,
-    cast(to_timestamp(`replace`(Instances['LaunchTime'], 'T', ' '), 'YYYY-MM-dd HH:mm:ss.SSSZ') as Timestamp) as LaunchTime,
-    Instances['State']['Name'] as State
+    t.Instances.InstanceId as InstanceId,
+    t.Instances.Placement.AvailabilityZone as AvailabilityZone,
+    t.Instances.InstanceType as InstanceType,
+    cast(to_timestamp(`replace`(t.Instances.LaunchTime, 'T', ' '), 'YYYY-MM-dd HH:mm:ss.SSSZ') as Timestamp) as LaunchTime,
+    t.Instances.State.Name as State
   from 
     (select flatten(r.Reservations['Instances']) as Instances from 
-        (select flatten(Reservations) as Reservations from instances) as r);
+        (select flatten(Reservations) as Reservations from instances) as r) t;
 ```
+
+One thing to node here is that to use the "dot" notation, we need to provide an alias to the table. In this case, I'm using `t`. Notice it at the very end of the query, just before the terminating semi-colon.
 
 This is getting complicated. Once we're pretty sure this is how we want our table to look, we can make future queries against this easier by creating a view. When creating the view, we'll make sure to be explicit about the column types, to make comparisons smoother.
 
 ```SQL
 create or replace view instance_view as
   select
-    cast(Instances['InstanceId'] as VARCHAR(16)) as InstanceId,
-    cast(Instances['Placement']['AvailabilityZone'] as VARCHAR(32)) as AvailabilityZone,
-    cast(Instances['InstanceType'] as VARCHAR(16)) as InstanceType,
-    cast(to_timestamp(`replace`(Instances['LaunchTime'], 'T', ' '), 'YYYY-MM-dd HH:mm:ss.SSSZ') as Timestamp) as LaunchTime,
-    cast(Instances['State']['Name'] as VARCHAR(16)) as State
+    cast(t.Instances.InstanceId as VARCHAR(16)) as InstanceId,
+    cast(t.Instances.Placement.AvailabilityZone as VARCHAR(32)) as AvailabilityZone,
+    cast(t.Instances.InstanceType as VARCHAR(16)) as InstanceType,
+    cast(to_timestamp(`replace`(t.Instances.LaunchTime, 'T', ' '), 'YYYY-MM-dd HH:mm:ss.SSSZ') as Timestamp) as LaunchTime,
+    cast(t.Instances.State.Name as VARCHAR(16)) as State
   from 
-    (select flatten(r.Reservations['Instances']) as Instances from 
-        (select flatten(Reservations) as Reservations from instances) as r);
+    (select flatten(r.Reservations.Instances) as Instances from 
+        (select flatten(Reservations) as Reservations from instances) as r) t;
 ```
 
 Now we can get the same result as above from a much simpler query:
@@ -318,12 +338,12 @@ select * from instance_view;
 
 ### Questions:
 
-1. Take a look at the directory where you unpacked the files (your workspace). Look at the files with the `.view.drill` extension, and notice how they're constructed.
+1. Take a look at the directory where you unpacked the files (your workspace). Look at the files with the `.view.drill` extension in your favorite editor, and notice how they're constructed.
 
 
 ## Spot Price History Data
 
-The data as obtained from Amazon contains timestamps that can't be parsed by Drill as-is if we want to use the timestamp type. So we need to transform them. We'll use the replace function in order to remove the bits of text that make the date unparseable. Note the replace functions inside the cast for Timestamp. Also note the use of backticks around replace and the Timestamp column name - we need these because Drill is still rather protective around reserved words.
+The data as obtained from Amazon contains timestamps that can't be parsed by Drill as-is if we want to use the timestamp type. So we need to transform them. We'll use the replace function in order to remove the bits of text that make the date unparseable. Note the replace functions inside the cast for Timestamp. Also note the use of backticks around replace and the Timestamp column name - we need these because Drill includes Timestamp as a reserved word, since it is the name of a type.
 
 ```SQL
 create or replace view spot_price_history as 
@@ -346,18 +366,14 @@ The spot request data is nested, so we'll use Drill's ability to query nested da
 ```SQL
 create or replace view requests_view as
   select 
-    cast(req['InstanceId'] as VARCHAR(16)) as InstanceId,
-    cast(req['LaunchedAvailabilityZone'] as VARCHAR(20)) as AvailabilityZone,
-    cast(req['LaunchSpecification']['InstanceType'] as VARCHAR(16)) as InstanceType,
-    cast(to_timestamp(`replace`(req['CreateTime'], 'T', ' '), 'YYYY-MM-dd HH:mm:ss.SSSZ') as Timestamp) as CreateTime
+    cast(t.req.InstanceId as VARCHAR(16)) as InstanceId,
+    cast(t.req.LaunchedAvailabilityZone as VARCHAR(20)) as AvailabilityZone,
+    cast(t.req.LaunchSpecification.InstanceType as VARCHAR(16)) as InstanceType,
+    cast(to_timestamp(`replace`(t.req.CreateTime, 'T', ' '), 'YYYY-MM-dd HH:mm:ss.SSSZ') as Timestamp) as CreateTime
   from
-    (select flatten(SpotInstanceRequests) as req from requests);
+    (select flatten(SpotInstanceRequests) as req from requests) t;
 ```
 
-### Why use a view?
-
-1. It allows us to simplify future queries
-2. It allows us to use the files in-place while casting to Drill types (for joins and comparisons)
 
 ## A Join 
 
@@ -379,7 +395,7 @@ select
   order by SpotSavingsPercent desc;
 ```
 
-This query takes way too long - several minutes on my laptop. Perhaps it's because we're scanning through a couple of gigabytes of spot price history when we don't really need to look at all of it.
+This query takes way too long - over 1 minute on my laptop. Perhaps it's because we're scanning through a couple of gigabytes of spot price history when we don't really need to look at all of it.
 
 Maybe we can prune away some of the data in the query, so that we don't have to scan the entire history? Let's just use the average spot price for the current month, which at the time of this writing is April (4):
 
@@ -398,9 +414,9 @@ select
   order by SpotSavingsPercent desc;
 ```
 
-Queried as above, Drill will ignore the directories that don't satisfy the `yr = 2015 and mo = 4` constraints, and the query goes a lot faster. 6 seconds versus several minutes. That's a pretty easy optimization we can make, and all we have to do to take advantage of it is organize the historical data into a sensible directory scheme.
+Queried as above, Drill will ignore the directories that don't satisfy the `yr = 2015 and mo = 4` constraints, and the query goes a lot faster. <3 seconds versus several minutes. That's a pretty easy optimization we can make, and all we have to do to take advantage of it is organize the historical data into a sensible directory scheme.
 
-What we can also do is store the historical data in a more efficient format. Let's convert it to Parquet.
+We can also store the historical data in a more efficient format. Let's convert it to Parquet.
 
 ```SQL
 alter session set `store.format`='parquet';
@@ -417,7 +433,7 @@ create table history_parquet as
   from history;
 ```
 
-37 seconds later, we have history data in Parquet format. Big difference in terms of space:
+15 seconds later, we have history data in Parquet format. Big difference in terms of space:
 
 ```
 $ du -hs history history_parquet/
@@ -442,25 +458,68 @@ create or replace view spot_price_history as
 ```
 
 
-Let's run the query against this table:
+Let's run the partitioned query against this table:
 
 ```SQL
-select
-    iv.InstanceType,
-    100 - (100 * (avg(sv.SpotPrice) / avg(od.hourly))) as SpotSavingsPercent 
-  from
-    instance_view iv,
-    (select InstanceType,AvailabilityZone,avg(SpotPrice) as SpotPrice from spot_price_history where yr = 2015 and mo = 4 group by InstanceType, AvailabilityZone) sv,
-    ondemand_view od
-  where 
-    iv.InstanceType = sv.InstanceType and 
-    iv.InstanceType = od.InstanceType 
-  group by iv.InstanceType
-  order by SpotSavingsPercent desc;
+0: jdbc:drill:zk=local> select
+. . . . . . . . . . . >     iv.InstanceType,
+. . . . . . . . . . . >     100 - (100 * (avg(sv.SpotPrice) / avg(od.hourly))) as SpotSavingsPercent
+. . . . . . . . . . . >   from
+. . . . . . . . . . . >     instance_view iv,
+. . . . . . . . . . . >     (select InstanceType,AvailabilityZone,avg(SpotPrice) as SpotPrice from spot_price_history where yr = 2015 and mo = 4 group by InstanceType, AvailabilityZone) sv,
+. . . . . . . . . . . >     ondemand_view od
+. . . . . . . . . . . >   where
+. . . . . . . . . . . >     iv.InstanceType = sv.InstanceType and
+. . . . . . . . . . . >     iv.InstanceType = od.InstanceType
+. . . . . . . . . . . >   group by iv.InstanceType
+. . . . . . . . . . . >   order by SpotSavingsPercent desc;
++---------------+----------------------+
+| InstanceType  |  SpotSavingsPercent  |
++---------------+----------------------+
+| r3.2xlarge    | 70.6909299159247     |
+| r3.xlarge     | 61.19331669744847    |
+| c3.2xlarge    | 60.775396162075175   |
+| r3.large      | 58.1294674134876     |
+| m3.2xlarge    | 19.0772286095427     |
+| m3.large      | 2.8905956029435487   |
+| m3.xlarge     | -4.536922939991015   |
+| m3.medium     | -27.335018595241195  |
++---------------+----------------------+
+8 rows selected (2.443 seconds)
 ```
 
 And we get an answer back in a few seconds.
 
+
+Unpartitioned, we see a dramatic speedup; a little more than 3 seconds on my laptop compared with nearly 80 seconds before:
+
+```SQL
+0: jdbc:drill:zk=local> select
+. . . . . . . . . . . >     iv.InstanceType,
+. . . . . . . . . . . >     100 - (100 * (avg(sv.SpotPrice) / avg(od.hourly))) as SpotSavingsPercent
+. . . . . . . . . . . >   from
+. . . . . . . . . . . >     instance_view iv,
+. . . . . . . . . . . >     (select InstanceType,AvailabilityZone,avg(SpotPrice) as SpotPrice from spot_price_history group by InstanceType, AvailabilityZone) sv,
+. . . . . . . . . . . >     ondemand_view od
+. . . . . . . . . . . >   where
+. . . . . . . . . . . >     iv.InstanceType = sv.InstanceType and
+. . . . . . . . . . . >     iv.InstanceType = od.InstanceType
+. . . . . . . . . . . >   group by iv.InstanceType
+. . . . . . . . . . . >   order by SpotSavingsPercent desc;
++---------------+---------------------+
+| InstanceType  | SpotSavingsPercent  |
++---------------+---------------------+
+| r3.2xlarge    | 69.15557987569018   |
+| r3.xlarge     | 66.36492802897897   |
+| c3.2xlarge    | 63.62399021040896   |
+| r3.large      | 55.885678882778755  |
+| m3.2xlarge    | 18.735199249473595  |
+| m3.large      | -2.138299714762695  |
+| m3.xlarge     | -3.048532790786382  |
+| m3.medium     | -39.01277350417584  |
++---------------+---------------------+
+8 rows selected (3.271 seconds)
+```
 
 
 ## Questions we want to ask of the data
@@ -469,7 +528,7 @@ And we get an answer back in a few seconds.
 
 Let's say I want to pick the most stable spot price for an instance. What instance type should it be, and where should I place those instances?
 
-Use the variance to find the volatility in spot pricing by instance and region. Let's get the top 10 most stable spot prices, across all regions:
+Use the variance function to find the volatility in spot pricing by instance and region. Let's get the top 10 most stable spot prices, across all regions:
 
 ```SQL
 select 
@@ -483,7 +542,7 @@ select
     InstanceType 
   order by 
     PriceVariance
-  asc;
+  asc limit 10;
 ```
 
 Now let's get the most stable region for an instance type of our choice:
@@ -547,7 +606,7 @@ select
   from
     instance_view iv,
     ondemand_view od,
-    history_view h
+    history_parquet h
   where
     iv.State = 'running' and
     iv.InstanceType = od.InstanceType and
