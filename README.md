@@ -15,10 +15,10 @@ At the end of this workshop, we hope you'll have learned about the following con
 
 ## Prerequisites
 
-Download Apache Drill 1.0.0. From the command line on linux or Mac OS:
+Download Apache Drill 1.5.0. From the command line on linux or Mac OS:
 
 ```bash
-curl -LO http://getdrill.org/drill/download/apache-drill-1.0.0.tar.gz
+curl -LO 'http://www.apache.org/dyn/closer.lua?filename=drill/drill-1.5.0/apache-drill-1.5.0.tar.gz&action=download'
 ```
 
 If you are at the workshop in person, you can also use the thumb drives that are around to copy Drill and the data onto your laptop.
@@ -27,7 +27,7 @@ Follow the instructions to install Drill on your platform. I recommend for this 
 
 ```bash
 cd ~
-curl -L http://getdrill.org/drill/download/apache-drill-1.0.0.tar.gz | tar -vxzf -
+curl -L 'http://www.apache.org/dyn/closer.lua?filename=drill/drill-1.5.0/apache-drill-1.5.0.tar.gz&action=download' | tar -vxzf -
 ```
 
 ### Start drill in embedded mode
@@ -35,7 +35,7 @@ curl -L http://getdrill.org/drill/download/apache-drill-1.0.0.tar.gz | tar -vxzf
 Start Drill with an embedded Zookeeper as follows (adjust the path to sqlline as needed, based on where you installed Drill):
 
 ```bash
-~/apache-drill-1.0.0/bin/sqlline -u jdbc:drill:zk=local
+~/apache-drill-1.5.0/bin/sqlline -u jdbc:drill:zk=local
 ```
 
 Once done, you should be able to connect to http://localhost:8047 in your browser and explore the Drill UI.
@@ -54,13 +54,15 @@ On my mac, I can download and unpack the data in one step to my tmp directory (b
 ```bash
 curl -L https://s3.amazonaws.com/vgonzalez/data/spot-prices/spot_data.tar.gz | tar -C /tmp -vxzf -
 ```
-This will create a directory in your home called `spot_data`. Note the path to this directory if you unpacked the tar ball somewhere else.
+This will create a directory in `/tmp` called `spot_data`. Note the path to this directory if you unpacked the tar ball somewhere else.
 
 If you're at the workshop in person, there are also some thumb drives around with all the needed things on it. The directory looks like this:
 
 ![](img/directory.png?raw=true)
 
 You can copy the `spot_data` directory to a location on your disk, noting the path since you'll need that later.
+
+## Create a Workspace in Drill
 
 Let’s create a workspace for this data by editing the dfs plugin.
 
@@ -136,6 +138,10 @@ I obtained the on-demand pricing data here: http://info.awsstream.com/instances.
 
 It required some simple reshaping for which I used jq. So the data downloaded from the above URL is modified to make it easy to query with Drill.
 
+## Start sqlline
+
+Drill ships with a command line tool called sqlline that you can use to submit queries. When you started sqlline above, you are actually running what's called an embedded drillbit on your local machine.
+
 ## Some Exploratory Queries
 
 Having just downloaded this data, maybe we don't really know what's in it. You could explore the schema, and try to figure out the structure first. But you could also just see if Drill can figure it out for you, and maybe you can skip a step.
@@ -197,6 +203,20 @@ Once done, you should be able to query the on demand data:
 +---------+------------+----------+---------+---------------------------+---------------------------+-------+---------+-----------+--------+----------+---------------+
 1 row selected (0.375 seconds)
 ```
+
+In Drill 1.4.0 and later, you can also enable the UNION type (note that this feature is experimental, and it will actually break a query later; don't worry about that right now though):
+
+```SQL
+0: jdbc:drill:zk=local> ALTER SESSION SET `exec.enable_union_type` = true;
++-------+----------------------------------+
+|  ok   |             summary              |
++-------+----------------------------------+
+| true  | exec.enable_union_type updated.  |
++-------+----------------------------------+
+1 row selected (0.09 seconds)
+```
+
+Either will allow the query to complete successfully.
 
 
 ### Questions:
@@ -279,6 +299,18 @@ Notice that the "Reservations" column is a list containing maps. We want each ma
 | 90         |
 +------------+
 1 row selected (0.947 seconds)
+```
+
+If this query failed for you, perhaps you enabled the UNION type earlier. Disable it as follows, then try again:
+
+```SQL
+0: jdbc:drill:zk=local> ALTER SESSION SET `exec.enable_union_type` = false;
++-------+----------------------------------+
+|  ok   |             summary              |
++-------+----------------------------------+
+| true  | exec.enable_union_type updated.  |
++-------+----------------------------------+
+1 row selected (0.067 seconds)
 ```
 
 Use only the sub-select if you want to see all the rows:
@@ -377,7 +409,7 @@ create or replace view requests_view as
 
 ## A Join 
 
-So let's see what kind of percent difference spot pricing would make against the instances that currently exist. To do that, we need to join together a few tables - the instance data, the on-demand pricing data, and the spot pricing data. That's a three way join, across three data sets that are backed by JSON files.
+So let's see what kind of percent difference spot pricing would make against the instances that currently exist. To do that, we need to join together a few tables - the instance data, the on-demand pricing data, and the spot pricing data. That's a three way join, across three data sets that are backed by JSON files (note that this query will fail if you did not enable `store.json.all_text_mode` above):
 
 
 ```SQL
@@ -395,9 +427,9 @@ select
   order by SpotSavingsPercent desc;
 ```
 
-This query takes way too long - over 1 minute on my laptop. Perhaps it's because we're scanning through a couple of gigabytes of spot price history when we don't really need to look at all of it.
+This query takes way too long - nearly 48 seconds (down from over a minute on Drill 1.0.0, but still a long time) on my laptop. Perhaps it's in part because we're scanning through a couple of gigabytes of spot price history when we don't really need to look at all of it.
 
-Maybe we can prune away some of the data in the query, so that we don't have to scan the entire history? Let's just use the average spot price for the current month, which at the time of this writing is April (4):
+Maybe we can prune away some of the data in the query, so that we don't have to scan the entire history? Let's just use the average spot price for one month, April (4):
 
 ```SQL
 select
@@ -461,18 +493,23 @@ create or replace view spot_price_history as
 Let's run the partitioned query against this table:
 
 ```SQL
-0: jdbc:drill:zk=local> select
-. . . . . . . . . . . >     iv.InstanceType,
-. . . . . . . . . . . >     100 - (100 * (avg(sv.SpotPrice) / avg(od.hourly))) as SpotSavingsPercent
-. . . . . . . . . . . >   from
-. . . . . . . . . . . >     instance_view iv,
-. . . . . . . . . . . >     (select InstanceType,AvailabilityZone,avg(SpotPrice) as SpotPrice from spot_price_history where yr = 2015 and mo = 4 group by InstanceType, AvailabilityZone) sv,
-. . . . . . . . . . . >     ondemand_view od
-. . . . . . . . . . . >   where
-. . . . . . . . . . . >     iv.InstanceType = sv.InstanceType and
-. . . . . . . . . . . >     iv.InstanceType = od.InstanceType
-. . . . . . . . . . . >   group by iv.InstanceType
-. . . . . . . . . . . >   order by SpotSavingsPercent desc;
+select
+  iv.InstanceType,
+  100 - (100 * (avg(sv.SpotPrice) / avg(od.hourly))) as SpotSavingsPercent
+from
+  instance_view iv,
+  (select InstanceType,AvailabilityZone,avg(SpotPrice) as SpotPrice from spot_price_history where yr = 2015 and mo = 4 group by InstanceType, AvailabilityZone) sv,
+  ondemand_view od
+where
+  iv.InstanceType = sv.InstanceType and
+  iv.InstanceType = od.InstanceType
+group by iv.InstanceType
+order by SpotSavingsPercent desc;
+```
+
+This outputs:
+
+```
 +---------------+----------------------+
 | InstanceType  |  SpotSavingsPercent  |
 +---------------+----------------------+
@@ -494,18 +531,24 @@ And we get an answer back in a few seconds.
 Unpartitioned, we see a dramatic speedup; a little more than 3 seconds on my laptop compared with nearly 80 seconds before:
 
 ```SQL
-0: jdbc:drill:zk=local> select
-. . . . . . . . . . . >     iv.InstanceType,
-. . . . . . . . . . . >     100 - (100 * (avg(sv.SpotPrice) / avg(od.hourly))) as SpotSavingsPercent
-. . . . . . . . . . . >   from
-. . . . . . . . . . . >     instance_view iv,
-. . . . . . . . . . . >     (select InstanceType,AvailabilityZone,avg(SpotPrice) as SpotPrice from spot_price_history group by InstanceType, AvailabilityZone) sv,
-. . . . . . . . . . . >     ondemand_view od
-. . . . . . . . . . . >   where
-. . . . . . . . . . . >     iv.InstanceType = sv.InstanceType and
-. . . . . . . . . . . >     iv.InstanceType = od.InstanceType
-. . . . . . . . . . . >   group by iv.InstanceType
-. . . . . . . . . . . >   order by SpotSavingsPercent desc;
+select
+  iv.InstanceType,
+  100 - (100 * (avg(sv.SpotPrice) / avg(od.hourly))) as SpotSavingsPercent
+from
+  instance_view iv,
+  (select InstanceType,AvailabilityZone,avg(SpotPrice) as SpotPrice from spot_price_history group by InstanceType, AvailabilityZone) sv,
+  ondemand_view od
+where
+  iv.InstanceType = sv.InstanceType and
+  iv.InstanceType = od.InstanceType
+group by iv.InstanceType
+order by SpotSavingsPercent desc;
+```
+
+Output:
+
+```
+
 +---------------+---------------------+
 | InstanceType  | SpotSavingsPercent  |
 +---------------+---------------------+
