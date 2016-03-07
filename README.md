@@ -15,7 +15,7 @@ At the end of this workshop, we hope you'll have learned about the following con
 
 ## Prerequisites
 
-Download Apache Drill 1.0.0. From the command line on linux or Mac OS:
+Download Apache Drill 1.5.0. From the command line on linux or Mac OS:
 
 ```bash
 curl -LO 'http://www.apache.org/dyn/closer.lua?filename=drill/drill-1.5.0/apache-drill-1.5.0.tar.gz&action=download'
